@@ -10,7 +10,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hms.db")
 
 st.set_page_config(
     page_title="Hospital Management System",
-    page_icon="🏥",
+    page_icon="+",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -85,7 +85,20 @@ def get_db_connection():
     return conn
 
 
-def hash_password(password: str) -> str:
+def caesar_cipher(text: str, shift: int = 3) -> str:
+    shift %= 26
+    result = []
+    for char in text:
+        if "a" <= char <= "z":
+            result.append(chr((ord(char) - ord("a") + shift) % 26 + ord("a")))
+        elif "A" <= char <= "Z":
+            result.append(chr((ord(char) - ord("A") + shift) % 26 + ord("A")))
+        else:
+            result.append(char)
+    return "".join(result)
+
+
+def legacy_hash_password(password: str) -> str:
     salt = "hms_secure_salt_2026"
     return hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
 
@@ -160,102 +173,49 @@ def init_database():
     """)
     conn.commit()
 
-    cursor.execute("SELECT COUNT(*) as cnt FROM usr_pwd;")
-    if cursor.fetchone()["cnt"] == 0:
-        # Preloaded Users
-        users = [
-            ("admin", hash_password("admin123")),
-            ("reception", hash_password("reception123")),
-            ("dr_robert", hash_password("doctor123"))
-        ]
-        cursor.executemany("INSERT INTO usr_pwd (USERNAME, PASSWORD) VALUES (?, ?);", users)
-
-        # Preloaded Doctors
-        doctors = [
-            ("DOC101", "Robert", "Alan", "Chen", "Cardiology", "2019-03-15"),
-            ("DOC102", "Sarah", "Marie", "Johnson", "Neurology", "2020-07-01"),
-            ("DOC103", "Vikram", "Raj", "Patel", "Pediatrics", "2018-11-20"),
-            ("DOC104", "Elena", "Grace", "Reyes", "Orthopedics", "2021-02-10"),
-            ("DOC105", "David", "Lee", "Kim", "Emergency Medicine", "2017-05-04")
-        ]
-        cursor.executemany("INSERT INTO doc VALUES (?, ?, ?, ?, ?, ?);", doctors)
-
-        # Preloaded dtime
-        schedules = [
-            ("DOC101", "09:00 - 17:00", "09:00 - 17:00", "09:00 - 13:00", "09:00 - 17:00", "09:00 - 17:00", "ON CALL", "OFF"),
-            ("DOC102", "OFF", "10:00 - 18:00", "10:00 - 18:00", "10:00 - 18:00", "10:00 - 16:00", "09:00 - 14:00", "OFF"),
-            ("DOC103", "08:30 - 16:30", "08:30 - 16:30", "08:30 - 16:30", "08:30 - 16:30", "OFF", "OFF", "10:00 - 14:00"),
-            ("DOC104", "11:00 - 19:00", "11:00 - 19:00", "OFF", "11:00 - 19:00", "11:00 - 19:00", "09:00 - 13:00", "OFF"),
-            ("DOC105", "07:00 - 15:00", "07:00 - 15:00", "07:00 - 15:00", "OFF", "15:00 - 23:00", "ON CALL", "ON CALL")
-        ]
-        cursor.executemany("INSERT INTO dtime VALUES (?, ?, ?, ?, ?, ?, ?, ?);", schedules)
-
-        # Preloaded Nurses (Associated with Wards)
-        nurses = [
-            ("NUR201", "Emily", "Rose", "Watson", "ICU", "2020-01-15"),
-            ("NUR202", "Michael", "James", "Brown", "Ward 101", "2021-04-12"),
-            ("NUR203", "Amina", "Khadija", "Diallo", "Pediatric Ward", "2019-08-25"),
-            ("NUR204", "Carlos", "Eduardo", "Mendoza", "Emergency", "2022-03-18"),
-            ("NUR205", "Jessica", "Ann", "Taylor", "Cardiology Ward", "2018-10-05"),
-            ("NUR206", "Liam", "Thomas", "Murphy", "ICU", "2023-01-09"),
-            ("NUR207", "Sophia", "Grace", "Martinez", "Ward 102", "2021-09-14")
-        ]
-        cursor.executemany("INSERT INTO nurse VALUES (?, ?, ?, ?, ?, ?);", nurses)
-
-        # Preloaded Patients (DOD is Nullable: None for admitted, YYYY-MM-DD for discharged)
-        patients = [
-            ("John", "Edward", "Doe", "DOC101", "M", "1985-04-12", "2026-10-15", None, "Cardiology Ward", "Hypertension & Severe Angina"),
-            ("Maria", "Santos", "Garcia", "DOC103", "F", "2015-09-20", "2026-10-25", None, "Pediatric Ward", "Acute Asthma Exacerbation"),
-            ("Arthur", "Pendelton", "Smith", "DOC104", "M", "1958-12-03", "2026-10-10", "2026-10-28", "Ward 101", "Post-Op Knee Replacement"),
-            ("Priya", "Sundar", "Nair", "DOC102", "F", "1992-06-18", "2026-10-28", None, "ICU", "Chronic Migraine & Peripheral Neuropathy"),
-            ("James", "Alexander", "Wilson", "DOC105", "M", "1978-01-30", "2026-10-31", None, "Emergency", "Suspected Food Poisoning & Dehydration")
-        ]
-        cursor.executemany("""
-            INSERT INTO Patient (FNAME, MNAME, LNAME, DID, GENDER, DOB, DOA, DOD, WARD, REASON)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-        """, patients)
-
-        conn.commit()
-
     conn.close()
 
 
-def calculate_age(dob_str: str) -> str:
+def calculate_age(dob_str):
     if not dob_str:
         return "N/A"
-    try:
-        dob_date = datetime.strptime(str(dob_str).strip(), "%Y-%m-%d").date()
-        today = date.today()
-        age = today.year - dob_date.year - ((today.month, today.day) < (dob_date.month, dob_date.day))
-        return f"{age} yrs" if age >= 0 else "N/A"
-    except Exception:
+
+    dob = datetime.strptime(dob_str, "%Y-%m-%d").date()
+    today = date.today()
+    age = today.year - dob.year
+
+    if (today.month, today.day) < (dob.month, dob.day):
+        age -= 1
+
+    if age < 0:
         return "N/A"
+
+    return str(age) + " yrs"
+
+conn = get_db_connection()
 
 
 def validate_doctor_id(did: str) -> bool:
-    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT 1 FROM doc WHERE DID = ?;", (did.strip().upper(),))
     row = cursor.fetchone()
-    conn.close()
+    cursor.close()
     return row is not None
 
 
 def get_all_doctor_options():
-    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT DID, DFNAME, DLNAME, FIELD FROM doc ORDER BY DID ASC;")
     rows = cursor.fetchall()
-    conn.close()
+    cursor.close()
     return [{"DID": r["DID"], "Label": f"{r['DID']} - Dr. {r['DFNAME']} {r['DLNAME']} ({r['FIELD']})"} for r in rows]
 
 
 def get_nurses_by_ward(ward: str):
-    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT NID, NFNAME || ' ' || NLNAME as NurseName FROM nurse WHERE WARD = ? ORDER BY NID ASC;", (ward,))
     rows = cursor.fetchall()
-    conn.close()
+    cursor.close()
     return [f"{r['NID']} ({r['NurseName']})" for r in rows]
 
 
@@ -283,68 +243,80 @@ def render_auth_page():
         with auth_tab[0]:
             st.markdown("### Staff Sign In")
             st.caption("Please enter your registered credentials to access the portal.")
-            with st.form("login_form", clear_on_submit=False):
+            with st.form("login_form"):
                 login_user = st.text_input("Username", placeholder="e.g. admin")
                 login_pass = st.text_input("Password", type="password", placeholder="Enter password")
-                submitted = st.form_submit_button("Sign In", use_container_width=True)
+                login_submit = st.form_submit_button("Sign In", use_container_width=True)
 
-                if submitted:
-                    if not login_user or not login_pass:
-                        st.error("Please enter both username and password.")
-                    else:
-                        conn = get_db_connection()
-                        cursor = conn.cursor()
-                        hashed_pass = hash_password(login_pass)
+            if login_submit:
+                if not login_user or not login_pass:
+                    st.error("Please enter both username and password.")
+                else:
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT USERNAME, PASSWORD FROM usr_pwd WHERE USERNAME = ?",
+                        (login_user.strip(),)
+                    )
+                    user_record = cursor.fetchone()
+                    authenticated = bool(
+                        user_record
+                        and user_record["PASSWORD"] == caesar_cipher(login_pass)
+                    )
+                    if (
+                        user_record
+                        and not authenticated
+                        and user_record["PASSWORD"] == legacy_hash_password(login_pass)
+                    ):
                         cursor.execute(
-                            "SELECT USERNAME FROM usr_pwd WHERE USERNAME = ? AND PASSWORD = ?;",
-                            (login_user.strip(), hashed_pass)
+                            "UPDATE usr_pwd SET PASSWORD = ? WHERE USERNAME = ?;",
+                            (caesar_cipher(login_pass), user_record["USERNAME"])
                         )
-                        user_record = cursor.fetchone()
-                        conn.close()
+                        conn.commit()
+                        authenticated = True
+                    conn.close()
 
-                        if user_record:
-                            st.session_state["authenticated"] = True
-                            st.session_state["username"] = user_record["USERNAME"]
-                            st.success(f"Welcome back, {user_record['USERNAME']}!")
-                            st.rerun()
-                        else:
-                            st.error("Invalid username or password. Please verify your credentials.")
+                    if authenticated:
+                        st.session_state["authenticated"] = True
+                        st.session_state["username"] = user_record["USERNAME"]
+                        st.success(f"Welcome back, {user_record['USERNAME']}!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password.")
 
             st.info("**Preloaded Demo Credentials**: Username: `admin` | Password: `admin123`")
 
         # REGISTER
         with auth_tab[1]:
             st.markdown("### User Registration")
-            st.caption("Register a new staff user credentials into usr_pwd.")
+            st.caption("Register a new staff account.")
             with st.form("register_form", clear_on_submit=True):
                 reg_user = st.text_input("Username *", placeholder="e.g. nurse_smith")
                 reg_pass = st.text_input("Password *", type="password")
                 reg_pass_confirm = st.text_input("Confirm Password *", type="password")
-
                 reg_submit = st.form_submit_button("Register Account", use_container_width=True)
 
-                if reg_submit:
-                    if not reg_user or not reg_pass or not reg_pass_confirm:
-                        st.error("All fields are mandatory.")
-                    elif len(reg_pass) < 4:
-                        st.warning("Password should be at least 4 characters long.")
-                    elif reg_pass != reg_pass_confirm:
-                        st.error("Passwords do not match.")
+            if reg_submit:
+                if not reg_user or not reg_pass or not reg_pass_confirm:
+                    st.error("All fields are mandatory.")
+                elif len(reg_pass) < 4:
+                    st.warning("Password should be at least 4 characters.")
+                elif reg_pass != reg_pass_confirm:
+                    st.error("Passwords do not match.")
+                else:
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT 1 FROM usr_pwd WHERE USERNAME = ?;", (reg_user.strip(),))
+                    if cursor.fetchone():
+                        st.error(f"Username '{reg_user}' is already registered.")
                     else:
-                        conn = get_db_connection()
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT 1 FROM usr_pwd WHERE USERNAME = ?;", (reg_user.strip(),))
-                        if cursor.fetchone():
-                            st.error(f"Username '{reg_user}' is already registered. Please choose another.")
-                            conn.close()
-                        else:
-                            cursor.execute(
-                                "INSERT INTO usr_pwd (USERNAME, PASSWORD) VALUES (?, ?);",
-                                (reg_user.strip(), hash_password(reg_pass))
-                            )
-                            conn.commit()
-                            conn.close()
-                            st.success(f"Account '{reg_user}' registered successfully! You can now log in.")
+                        cursor.execute(
+                            "INSERT INTO usr_pwd (USERNAME, PASSWORD) VALUES (?, ?);",
+                            (reg_user.strip(), caesar_cipher(reg_pass))
+                        )
+                        conn.commit()
+                        st.success(f"Account '{reg_user}' registered successfully!")
+                    conn.close()
 
         # FORGOT PASSWORD
         with auth_tab[2]:
@@ -357,28 +329,27 @@ def render_auth_page():
                 new_pass_confirm = st.text_input("Confirm New Password *", type="password")
                 reset_btn = st.form_submit_button("Reset Password", use_container_width=True)
 
-                if reset_btn:
-                    if not reset_user or not new_pass or not new_pass_confirm:
-                        st.error("Please fill in all fields.")
-                    elif len(new_pass) < 4:
-                        st.warning("Password must be at least 4 characters.")
-                    elif new_pass != new_pass_confirm:
-                        st.error("New passwords do not match.")
+            if reset_btn:
+                if not reset_user or not new_pass or not new_pass_confirm:
+                    st.error("Please fill in all fields.")
+                elif len(new_pass) < 4:
+                    st.warning("Password must be at least 4 characters.")
+                elif new_pass != new_pass_confirm:
+                    st.error("New passwords do not match.")
+                else:
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT 1 FROM usr_pwd WHERE USERNAME = ?;", (reset_user.strip(),))
+                    if not cursor.fetchone():
+                        st.error(f"Username '{reset_user}' does not exist.")
                     else:
-                        conn = get_db_connection()
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT 1 FROM usr_pwd WHERE USERNAME = ?;", (reset_user.strip(),))
-                        if not cursor.fetchone():
-                            st.error(f"Username '{reset_user}' does not exist in the system.")
-                            conn.close()
-                        else:
-                            cursor.execute(
-                                "UPDATE usr_pwd SET PASSWORD = ? WHERE USERNAME = ?;",
-                                (hash_password(new_pass), reset_user.strip())
-                            )
-                            conn.commit()
-                            conn.close()
-                            st.success(f"Password for user '{reset_user}' was successfully reset! Please sign in with your new password.")
+                        cursor.execute(
+                            "UPDATE usr_pwd SET PASSWORD = ? WHERE USERNAME = ?;",
+                            (caesar_cipher(new_pass), reset_user.strip())
+                        )
+                        conn.commit()
+                        st.success(f"Password for '{reset_user}' reset successfully!")
+                    conn.close()
 
 
 # PATIENT MANAGEMENT
@@ -405,30 +376,36 @@ def render_patient_management():
 
         if df_patients.empty:
             st.info("No patient records found in the database.")
+            st.caption("Create a doctor in Doctor Management first, then use the Add Patient tab to enter the first patient.")
         else:
-            # Full Name and Age columns
-            df_patients["Full Name"] = df_patients.apply(
-                lambda r: f"{r['FNAME']} {r['MNAME'] + ' ' if (pd.notna(r['MNAME']) and r['MNAME']) else ''}{r['LNAME']}".strip(),
-                axis=1
-            )
+            df_patients["Full Name"] = (
+                df_patients["FNAME"] + " " +
+                df_patients["MNAME"].fillna("") + " " +
+                df_patients["LNAME"]
+            ).str.replace(r"\s+", " ", regex=True).str.strip()
             df_patients["Age"] = df_patients["DOB"].apply(calculate_age)
-            df_patients["Doctor Assignment"] = df_patients.apply(
-                lambda r: f"Dr. {r['DFNAME']} {r['DLNAME']} ({r['FIELD']}) [{r['DID']}]" if pd.notna(r['DID']) else "Unassigned",
-                axis=1
+            df_patients["Doctor Assignment"] = (
+                "Dr. " + df_patients["DFNAME"] + " " +
+                df_patients["DLNAME"] + " (" +
+                df_patients["FIELD"] + ") [" +
+                df_patients["DID"].astype(str) + "]"
             )
+            df_patients.loc[df_patients["DID"].isna(), "Doctor Assignment"] = "Unassigned"
             df_patients["Status"] = df_patients["DOD"].apply(
-                lambda d: "Discharged" if (pd.notna(d) and str(d).strip() and str(d).strip().upper() not in ["NONE", "NAN"]) else "Admitted (Active)"
+                lambda d: "Discharged" if pd.notna(d) else "Admitted (Active)"
             )
 
             # Search and Filter Controls
             col_search, col_status_filter, col_ward_filter = st.columns([2, 1, 1])
             with col_search:
-                search_term = st.text_input("Search by Patient ID (PNUM) or Name", placeholder="Enter PNUM or Name...")
+                search_term = st.text_input("Search Patient ID or Name", placeholder="Enter PNUM or Name")
             with col_status_filter:
                 status_filter = st.selectbox("Filter Status", ["All", "Admitted (Active)", "Discharged"])
             with col_ward_filter:
-                available_wards = ["All"] + sorted(list(set(df_patients["WARD"].dropna().unique())))
-                ward_filter = st.selectbox("Filter Ward", available_wards)
+                ward_filter = st.selectbox(
+                    "Filter Ward",
+                    ["All"] + sorted(df_patients["WARD"].dropna().unique().tolist())
+                )
 
             filtered_df = df_patients.copy()
 
@@ -491,7 +468,7 @@ def render_patient_management():
 
         doc_options = get_all_doctor_options()
         if not doc_options:
-            st.error("No doctors found in the database. Please register a doctor first.")
+            st.error("No doctors found in the database. Add a doctor from Doctor Management before registering a patient.")
         else:
             with st.form("add_patient_form", clear_on_submit=True):
                 c1, c2, c3 = st.columns(3)
@@ -616,10 +593,7 @@ def render_patient_management():
                         e_gender_choice = st.selectbox("Gender (GENDER) *", ["M (Male)", "F (Female)", "O (Other)"], index=g_idx)
                         e_gender_val = e_gender_choice[0]
                     with e_c5:
-                        try:
-                            curr_dob = datetime.strptime(p_data["DOB"], "%Y-%m-%d").date()
-                        except Exception:
-                            curr_dob = date(1990, 1, 1)
+                        curr_dob = datetime.strptime(p_data["DOB"], "%Y-%m-%d").date()
                         e_dob = st.date_input("Date of Birth (DOB) *", value=curr_dob)
                     with e_c6:
                         st.metric("Computed Age", calculate_age(e_dob.strftime("%Y-%m-%d")))
@@ -635,10 +609,7 @@ def render_patient_management():
                             format_func=lambda did: next((d["Label"] for d in doc_options if d["DID"] == did), did)
                         )
                     with e_c8:
-                        try:
-                            curr_doa = datetime.strptime(p_data["DOA"], "%Y-%m-%d").date()
-                        except Exception:
-                            curr_doa = date.today()
+                        curr_doa = datetime.strptime(p_data["DOA"], "%Y-%m-%d").date()
                         e_doa = st.date_input("Date of Admission (DOA) *", value=curr_doa)
                     with e_c9:
                         ward_options = ["Ward 101", "Ward 102", "Ward 201", "ICU", "Cardiology Ward", "Pediatric Ward", "Emergency", "Orthopedic Ward"]
@@ -654,10 +625,7 @@ def render_patient_management():
                         e_status = st.radio("Status", ["Admitted (Active - DOD Null)", "Discharged (Has DOD)"], index=1 if is_discharged else 0)
                         e_dod_val = None
                         if e_status.startswith("Discharged"):
-                            try:
-                                default_dod = datetime.strptime(p_data["DOD"], "%Y-%m-%d").date()
-                            except Exception:
-                                default_dod = date.today()
+                            default_dod = datetime.strptime(p_data["DOD"], "%Y-%m-%d").date()
                             e_dod_val = st.date_input("Date of Discharge (DOD)", value=default_dod)
                     with e_c11:
                         e_reason = st.text_area("Reason for Admission (REASON) *", value=p_data["REASON"])
@@ -748,6 +716,10 @@ def render_doctor_management():
     st.title("Doctor Management")
     st.markdown("Physician directory, specializations, and weekly schedules (Mon–Sun) via `doc` & `dtime` tables.")
 
+    added_message = st.session_state.pop("doctor_added_message", None)
+    if added_message:
+        st.success(added_message)
+
     conn = get_db_connection()
     query_docs = """
         SELECT d.DID, d.DFNAME, d.DMNAME, d.DLNAME, d.FIELD, d.DOJ,
@@ -759,6 +731,60 @@ def render_doctor_management():
     """
     df_docs = pd.read_sql_query(query_docs, conn)
     conn.close()
+
+    add_label = "Register First Doctor" if df_docs.empty else "Add Doctor"
+    if st.button(add_label, key="open_doctor_registration"):
+        st.session_state["show_doctor_registration"] = not st.session_state.get("show_doctor_registration", False)
+
+    if st.session_state.get("show_doctor_registration", False):
+        st.subheader("Register Doctor")
+        with st.form("add_doctor_form", clear_on_submit=True):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                did = st.text_input("Doctor ID (DID) *", placeholder="e.g. DOC101")
+            with c2:
+                dfname = st.text_input("First Name *")
+            with c3:
+                dlname = st.text_input("Last Name *")
+
+            c4, c5, c6 = st.columns(3)
+            with c4:
+                dmname = st.text_input("Middle Name")
+            with c5:
+                field = st.text_input("Specialization *", placeholder="e.g. Cardiology")
+            with c6:
+                doj = st.date_input("Date of Joining *", value=date.today())
+
+            submit_doctor = st.form_submit_button("Save Doctor", use_container_width=True)
+
+        if submit_doctor:
+            if not did.strip() or not dfname.strip() or not dlname.strip() or not field.strip():
+                st.error("Please fill in the required doctor fields.")
+            else:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1 FROM doc WHERE DID = ?;", (did.strip().upper(),))
+                if cursor.fetchone():
+                    st.error(f"Doctor ID '{did.strip().upper()}' is already registered.")
+                else:
+                    cursor.execute(
+                        """INSERT INTO doc (DID, DFNAME, DMNAME, DLNAME, FIELD, DOJ)
+                           VALUES (?, ?, ?, ?, ?, ?);""",
+                        (
+                            did.strip().upper(),
+                            dfname.strip(),
+                            dmname.strip() or None,
+                            dlname.strip(),
+                            field.strip(),
+                            doj.strftime("%Y-%m-%d")
+                        )
+                    )
+                    conn.commit()
+                    conn.close()
+                    st.session_state["doctor_added_message"] = f"Dr. {dfname.strip()} {dlname.strip()} registered successfully."
+                    st.session_state["show_doctor_registration"] = False
+                    st.rerun()
+                conn.close()
 
     if df_docs.empty:
         st.warning("No doctors registered in the system.")
@@ -919,6 +945,10 @@ def render_nurse_management():
     st.title(" Nurse Management")
     st.markdown("Nursing staff directory, ward assignments, and ward-patient correlations.")
 
+    added_message = st.session_state.pop("nurse_added_message", None)
+    if added_message:
+        st.success(added_message)
+
     conn = get_db_connection()
     query_nurses = """
         SELECT NID, NFNAME, NMNAME, NLNAME, WARD, DOJ
@@ -927,6 +957,63 @@ def render_nurse_management():
     """
     df_nurses = pd.read_sql_query(query_nurses, conn)
     conn.close()
+
+    add_label = "Register First Nurse" if df_nurses.empty else "Add Nurse"
+    if st.button(add_label, key="open_nurse_registration"):
+        st.session_state["show_nurse_registration"] = not st.session_state.get("show_nurse_registration", False)
+
+    if st.session_state.get("show_nurse_registration", False):
+        st.subheader("Register Nurse")
+        with st.form("add_nurse_form", clear_on_submit=True):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                nid = st.text_input("Nurse ID (NID) *", placeholder="e.g. NUR201")
+            with c2:
+                nfname = st.text_input("First Name *")
+            with c3:
+                nlname = st.text_input("Last Name *")
+
+            c4, c5, c6 = st.columns(3)
+            with c4:
+                nmname = st.text_input("Middle Name")
+            with c5:
+                ward = st.selectbox(
+                    "Assigned Ward *",
+                    ["Ward 101", "Ward 102", "Ward 201", "ICU", "Cardiology Ward", "Pediatric Ward", "Emergency", "Orthopedic Ward"]
+                )
+            with c6:
+                doj = st.date_input("Date of Joining *", value=date.today())
+
+            submit_nurse = st.form_submit_button("Save Nurse", use_container_width=True)
+
+        if submit_nurse:
+            if not nid.strip() or not nfname.strip() or not nlname.strip():
+                st.error("Please fill in the required nurse fields.")
+            else:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1 FROM nurse WHERE NID = ?;", (nid.strip().upper(),))
+                if cursor.fetchone():
+                    st.error(f"Nurse ID '{nid.strip().upper()}' is already registered.")
+                else:
+                    cursor.execute(
+                        """INSERT INTO nurse (NID, NFNAME, NMNAME, NLNAME, WARD, DOJ)
+                           VALUES (?, ?, ?, ?, ?, ?);""",
+                        (
+                            nid.strip().upper(),
+                            nfname.strip(),
+                            nmname.strip() or None,
+                            nlname.strip(),
+                            ward,
+                            doj.strftime("%Y-%m-%d")
+                        )
+                    )
+                    conn.commit()
+                    conn.close()
+                    st.session_state["nurse_added_message"] = f"{nfname.strip()} {nlname.strip()} registered successfully."
+                    st.session_state["show_nurse_registration"] = False
+                    st.rerun()
+                conn.close()
 
     if df_nurses.empty:
         st.warning("No nurse records found in the database.")
@@ -1032,48 +1119,57 @@ def render_nurse_management():
         )
 # DASHBOARD OVERVIEW 
 def render_dashboard():
-    st.title(" Hospital Operations Dashboard")
-    st.markdown(f"Welcome, **{st.session_state.get('username', 'Staff Member')}**! Live status of clinical operations.")
+    st.title("Hospital Operations Dashboard")
+    st.write(f"Welcome, **{st.session_state.get('username', 'Staff Member')}**! Live status of clinical operations.")
 
+    # Fetch dashboard statistics
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT COUNT(*) as total FROM Patient;")
-    total_patients = c.fetchone()["total"]
+    c.execute("SELECT COUNT(*) FROM Patient")
+    total_patients = c.fetchone()[0]
 
-    c.execute("SELECT COUNT(*) as active FROM Patient WHERE DOD IS NULL OR TRIM(DOD) = '' OR UPPER(TRIM(DOD)) IN ('ACTIVE', 'NONE');")
-    active_patients = c.fetchone()["active"]
+    c.execute("""
+        SELECT COUNT(*) FROM Patient
+        WHERE DOD IS NULL OR TRIM(DOD) = ''
+        OR UPPER(TRIM(DOD)) IN ('ACTIVE', 'NONE')
+    """)
+    active_patients = c.fetchone()[0]
 
-    c.execute("SELECT COUNT(*) as docs FROM doc;")
-    total_docs = c.fetchone()["docs"]
+    c.execute("SELECT COUNT(*) FROM doc")
+    total_docs = c.fetchone()[0]
 
-    c.execute("SELECT COUNT(*) as nurses FROM nurse;")
-    total_nurses = c.fetchone()["nurses"]
+    c.execute("SELECT COUNT(*) FROM nurse")
+    total_nurses = c.fetchone()[0]
     conn.close()
 
+    # Display statistics
     m1, m2, m3, m4 = st.columns(4)
-    with m1:
-        st.metric("Admitted Patients", active_patients, delta="Active in Wards")
-    with m2:
-        st.metric("Total Patient Files", total_patients)
-    with m3:
-        st.metric("Attending Doctors", total_docs)
-    with m4:
-        st.metric("Nursing Staff", total_nurses)
 
-    st.markdown("---")
+    m1.metric("Admitted Patients", active_patients, delta="Active in Wards")
+    m2.metric("Total Patient Files", total_patients)
+    m3.metric("Attending Doctors", total_docs)
+    m4.metric("Nursing Staff", total_nurses)
+
+    st.divider()
 
     col_recent, col_quick = st.columns([2, 1])
 
+    # Recent admissions
     with col_recent:
         st.subheader("Recent Admissions")
+
         conn = get_db_connection()
+
         query = """
-            SELECT p.PNUM, p.FNAME || ' ' || p.LNAME as PatientName, p.GENDER, p.DOB, p.DOA, p.WARD,
-                   'Dr. ' || d.DFNAME || ' ' || d.DLNAME as Doctor
+            SELECT p.PNUM, p.FNAME || ' ' || p.LNAME AS PatientName,
+                   p.GENDER, p.DOB, p.DOA, p.WARD,
+                   'Dr. ' || d.DFNAME || ' ' || d.DLNAME AS Doctor
             FROM Patient p
             LEFT JOIN doc d ON p.DID = d.DID
-            ORDER BY p.PNUM DESC LIMIT 5;
+            ORDER BY p.PNUM DESC
+            LIMIT 5
         """
+
         recent_df = pd.read_sql_query(query, conn)
         conn.close()
 
@@ -1081,86 +1177,80 @@ def render_dashboard():
             st.info("No recent patients found.")
         else:
             recent_df["Age"] = recent_df["DOB"].apply(calculate_age)
-            st.dataframe(
-                recent_df[["PNUM", "PatientName", "Age", "GENDER", "DOA", "WARD", "Doctor"]].rename(columns={
-                    "PNUM": "ID",
-                    "PatientName": "Patient",
-                    "GENDER": "Gender",
-                    "DOA": "Admitted",
-                    "WARD": "Ward"
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
 
+            recent_df = recent_df[
+                ["PNUM", "PatientName", "Age", "GENDER", "DOA", "WARD", "Doctor"]
+            ]
+
+            recent_df = recent_df.rename(columns={
+                "PNUM": "ID",
+                "PatientName": "Patient",
+                "GENDER": "Gender",
+                "DOA": "Admitted",
+                "WARD": "Ward"
+            })
+
+            st.dataframe(recent_df, use_container_width=True, hide_index=True)
+
+    # System information
     with col_quick:
         st.subheader("System Info & Status")
-        st.markdown(
-            f"""
-            <div class="hms-card">
-                <p><strong>Database:</strong> <code>hms.db</code> (SQLite3)</p>
-                <p><strong>System Date:</strong> {date.today().strftime('%B %d, %Y')}</p>
-                <p><strong>Logged in as:</strong> <code>{st.session_state.get('username')}</code></p>
-                <p><strong>Database Status:</strong> <span style="color: #16a34a; font-weight: 700;">● Online</span></p>
-                <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 12px 0;">
-                <p style="font-size: 0.85rem; color: #64748b;">
-                    Use the sidebar navigation to manage patients, review physician weekly duty rosters, or filter nursing allocations by ward.
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True
+
+        st.write("**Database:** `hms.db` (SQLite3)")
+        st.write(f"**System Date:** {date.today().strftime('%B %d, %Y')}")
+        st.write(f"**Logged in as:** `{st.session_state.get('username')}`")
+        st.write("**Database Status:** 🟢 Online")
+
+        st.divider()
+
+        st.caption(
+            "Use the sidebar to manage patients, review doctor duty rosters, "
+            "and manage nursing allocations by ward."
         )
 
 
-# MAIN CONTROLLER & NAVIGATION
+# MAIN 
 def main():
+    # Set default login details
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
+
     if "username" not in st.session_state:
         st.session_state["username"] = None
 
+    # Show login page if user is not logged in
     if not st.session_state["authenticated"]:
         render_auth_page()
         return
 
+    # Display sidebar
     with st.sidebar:
-        st.markdown(
-            """
-            <div style="text-align: center; padding-bottom: 10px;">
-                <h2 style="margin: 0; font-size: 1.35rem; color: #1e3a8a;">Hospital Portal</h2>
-                <p style="font-size: 0.85rem; color: #64748b;">Healthcare Operations Roster</p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.title("Hospital Portal")
+        st.caption("Healthcare Operations Roster")
 
-        st.markdown(f" **Staff User:** `{st.session_state['username']}`")
-        if st.button(" Logout", use_container_width=True):
+        st.write(f"Staff User: {st.session_state['username']}")
+
+        # Logout
+        if st.button("Logout"):
             st.session_state["authenticated"] = False
             st.session_state["username"] = None
             st.rerun()
 
-        st.markdown("---")
-        nav_selection = st.radio(
+        # Navigation menu
+        nav = st.radio(
             "Navigation Menu",
-            [
-                " Operations Dashboard",
-                " Patient Management",
-                " Doctor Management",
-                " Nurse Management"
-            ]
+            ["Operations Dashboard", "Patient Management",
+             "Doctor Management", "Nurse Management"]
         )
 
-        st.markdown("---")
-        st.caption("Hospital Management System v1.1\nAligned with README Schema")
-
-    if nav_selection == " Operations Dashboard":
+    # Display selected page
+    if nav == "Operations Dashboard":
         render_dashboard()
-    elif nav_selection == " Patient Management":
+    elif nav == "Patient Management":
         render_patient_management()
-    elif nav_selection == " Doctor Management":
+    elif nav == "Doctor Management":
         render_doctor_management()
-    elif nav_selection == " Nurse Management":
+    else:
         render_nurse_management()
 
 
